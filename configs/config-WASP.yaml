@@ -4,17 +4,48 @@
 # their own data, as the Snakefile requires it.
 # All config options are required unless noted otherwise.
 
-# The path to a text file specifying where to find read information for each sample.
+
+# The path to a text file specifying where to find sorted BAM files for each sample.
 # Each row in the sample file should represent a different sample.
-# The sample file should have 5 columns (each separated by a single tab):
-#       <vcf_sample_id> <unique_sample_name> <dna_bam_path> <fastq1_rna_path> <fastq2_rna_path>
-# Or if you don't have a BAM file, you can leave it out to perform a more
-# conservative version of the ASE test (see the 'rna_only' config below)
+# The sample file should have 4 columns (each separated by a single tab):
+#       <vcf_sample_id> <unique_sample_name> <dna_bam_path> <rna_bam_path>
+# if asoc: true, sample file should have 5 columns:
+#   <vcf_sample_id> <unique_sample_name> <dna_bam_path> <atac_bam_path> <sample_peaks_bed_path>
+# dna_bam_path column can be omitted if rna_only set to true (below)
 "sample_file" : "data/samples.tsv"
+
+# If the <dna_bam_path> column is left out in the sample file, or if you set
+# the rna_only option below to true, the pipeline will default to running the
+# rna-only version of the analysis, in which DNA read counts are ignored. This
+# performs a more conservative test.
+"rna_only" : true
+
+# If your RNA-seq or ATAC-seq data is provided as a BAM file instead of as
+# FASTQs, you can provide this command, which will be used in place of the
+# regular alignment command. Also, the first mapping step will be automatically
+# skipped. Use '{input.ref}' and '{input.fastq}' to refer to the ref genome
+# and FASTQ file(s), respectively. You can also use '{output}' to refer to the
+# program's output. You can find the exact alignment command
+# by looking at the '@PG' tags in your BAM file's header.
+# Note that {input.fastq} will be replaced by two FASTQ files if the 'interleaved'
+# config option is true or, otherwise, if the 'unpaired' config option is true.
+# If not provided, this option defaults to a falsey value.
+"aln_cmd": "bwa mem -M -R '@RG\\tID:Rat_Amygdala_cocaine_high:MissingLibrary:1:HFYJTDRXX:2\\tSM:Rat_Amygdala_cocaine_high\\tLB:MissingLibrary.1\\tPU:Rat_Amygdala_cocaine_high:MissingLibrary:1:HFYJTDRXX:2\\tPL:ILLUMINA' {input.ref} {input.fastq} > {output}"
+
+# If your RNA-seq data is single-end instead of paired-end, set this config
+# to true. In that case, you can provide only one FASTQ file in each line of
+# the samples file above. Otherwise, if this option is set to a falsey value
+# or commented out, both FASTQs will be used.
+"unpaired": true
+
+# If your RNA-seq data comes from a FASTQ file with interleaved paired end reads, set this config
+# option to true and the 'unpaired' config option to true, as well.
+# If the 'unpaired' config option is falsey, this config option will be ignored.
+"interleaved": true
 
 # The path to a reference genome
 # This is not required if "ref_genome_star" is provided below
-"ref_genome" : "data/hg38.fa"
+"ref_genome" : "data/rn6.fa.gz"
 
 # The path to a STAR index directory for "ref_genome"
 # If "ref_genome" is provided but not this, the pipeline will create the index
@@ -26,12 +57,6 @@
 # Make sure that the presence/absence of a chr prefix in this file matches what you have in your VCF (and your snp_h5_dir files if provided)!
 "chrom_info" : "data/chromInfo.txt.gz"
 
-# If the <dna_bam_path> column is left out in the sample file, or if you set
-# the rna_only option below to true, the pipeline will default to running the
-# rna-only version of the analysis, in which DNA read counts are ignored. This
-# performs a more conservative test.
-"rna_only" : true
-
 # Gene annotation information in the GTF format.
 # These can usually be obtained from GENCODE (https://www.gencodegenes.org/human/)
 # under the "PRI" regions label
@@ -39,28 +64,31 @@
 # https://genome.ucsc.edu/FAQ/FAQgenes.html#gtfDownload
 # If you provided a STAR index directory in 'ref_genome_star' above, you should
 # provide the same gtf that you used to create that index
-"gene_info" : "data/gencode.v26.GRCh38.genes.gtf"
+# Note: the GTF file should not be gzipped
+"gene_info" : "data/rn6.ensGene.gtf.gz"
 
 # If you have downloaded WASP from https://github.com/bmvdgeijn/WASP, specify the path to your WASP directory here
 # Otherwise, specify the location of the directory in which you'd like it installed
 # When this option is not provided, the pipeline will install WASP in your .snakemake directory
-"wasp_dir" : "WASP"
+"wasp_dir" : "/iblm/netapp/home/amassarat/bin/WASP-orig"
 
 # You can substitute ATAC-seq data for RNA-seq data!
 # Just set this config option to "true", so that the pipeline uses BWA instead of STAR
 # Also, you must provide a BWA-indexed reference genome via the "ref_genome" option (see above)
+# and you must provide an extra BED file as the last column of the sample file
 # This option will default to false if not provided
-"asoc": false
+"asoc": true
 
 # directory in which to output all of the output files
 # defined relative to whatever directory you execute the snakemake command in
+# "output_dir" : "asoc_out"
 "output_dir" : "out"
 
 # A VCF file with which to run WASP. This can come from the variant calling pipeline
 # The VCF must be gzipped and tabix-indexed (with a .tbi index in the same dir)
 # It must also contain genotype quality (GQ) information. Otherwise, you must set
 # a default in "default_gq" below
-"vcf_file" : "data/GTEx_Analysis_2017-06-05_v8_WholeGenomeSeq_838Indiv_Analysis_Freeze.SHAPEIT2_phased.vcf.gz"
+"vcf_file" : "data/genotypes.vcf.gz"
 
 # Set this option to a default GQ value if your VCF lacks GQ information. This default
 # will be used for all variant records. We recommend a default of 20, which will
@@ -68,7 +96,7 @@
 # if the VCF had GQ tags
 # If this option is commented out or set to a falsey value, the pipeline will assume
 # GQ tags exist in the VCF you provided
-"default_gq": false
+"default_gq": 20
 
 # If you already have SNP HDF5 files, specify the directory of the files here
 # Otherwise, they will be created in this location
